@@ -1,10 +1,12 @@
 (module git2html ()
 
 ;; TODO
-;; * list of commits (+ pagination)
+;; * create-preambule for files and commits
+;; * Number lines (+ links to lines)
+;; * Paginate commits
+;; * Hard-link commits in different branches
 ;; * Check overwrite of files
 ;; * Handle symlinks
-;; * Number lines (+ links to lines)
 
 ;; FIXME
 (import big-chicken)
@@ -20,7 +22,7 @@
                    (current-output-port)))
          (prog (pathname-strip-directory (program-name)))
          (msg #<#EOF
-Usage: #prog -o <output-dir> <git-repo-dir>
+Usage: #prog -o <output-dir> [-b <branch>]  <git-repo-dir>
 
 EOF
 ))
@@ -51,7 +53,7 @@ EOF
       (body
        ,content)))))
 
-(define (create-index dir-content git-dir output-dir #!key (preambule '()))
+(define (create-file-index dir-content git-dir output-dir #!key (preambule '()))
   (with-output-to-file (make-pathname output-dir "index.html")
     (lambda ()
       (display
@@ -79,38 +81,159 @@ EOF
                      files)
              string<=?))))
 
-(define (create-preambule git-dir)
+(define (create-preambule git-dir #!key branch path)
   (let ((repo-name (pathname-strip-directory (string-chomp git-dir "/"))))
-    `((h1 (pre ,repo-name))
+    `((h1 (code ,repo-name)
+          ,(if branch
+               `((literal "&nbsp") (code ,(sprintf "(~a)" branch)))
+               '())
+          ,(if path
+               `((literal "&nbsp") (code ,path))
+               '()))
       (hr))))
 
-(define (git-repo->html git-dir output-dir #!key link-parent?)
+(define (string-prefix? maybe-substring string)
+  (let ((pos (substring-index maybe-substring string)))
+    (and pos (fx= 0 pos))))
+
+(define (pathname-relative-to shortest-path longest-path)
+  (let ((shortest-path (normalize-pathname shortest-path))
+        (longest-path (normalize-pathname longest-path)))
+    (if (string-prefix? shortest-path longest-path)
+         (substring longest-path
+                    (string-length shortest-path))
+        (error 'pathname-relative-to
+               (sprintf "~a is not relative to ~a" shortest-path longest-path)))))
+
+(define (repo-files->html top-git-dir output-dir #!key link-parent? branch)
+
+  (define (render-listing git-dir out-dir #!key (link-parent? #t))
+
+    (define (%create-preambule path)
+      (create-preambule top-git-dir
+                        branch: branch
+                        path: (pathname-relative-to path out-dir)))
+
+    (let ((dir-content (list-directory git-dir)))
+      (create-file-index
+       (if link-parent?
+           (cons ".." dir-content)
+           dir-content)
+       git-dir
+       out-dir
+       preambule: (%create-preambule
+                   (make-pathname (list output-dir branch) "files")))
+      (for-each
+       (lambda (file)
+         (let ((file-full-path (make-pathname git-dir file)))
+           (if (directory? file-full-path)
+               (let ((out-dir (make-pathname out-dir file)))
+                 (create-directory out-dir)
+                 (render-listing file-full-path out-dir))
+               (with-output-to-file (make-pathname out-dir file "html")
+                 (lambda ()
+                   (display
+                    (html-page
+                     `(;; ,(%create-preambule (make-pathname (list output-dir branch "files") file))
+                       (pre
+                        ,(with-input-from-file file-full-path read-string)))
+                     title: file)))))))
+       dir-content)))
+
+  (let ((out-dir (make-pathname
+                  (if branch
+                      (list output-dir branch)
+                      output-dir)
+                  "files")))
+    (create-directory out-dir 'parents)
+    (render-listing top-git-dir out-dir link-parent?: #f)))
+
+(define (create-project-index git-dir branches output-dir)
   (create-directory output-dir 'parents)
-  (let ((dir-content (list-directory git-dir)))
-    (create-index (if link-parent?
-                      (cons ".." dir-content)
-                      dir-content)
-                  git-dir
-                  output-dir
-                  preambule: (if link-parent? '() (create-preambule git-dir)))
-    (for-each
-     (lambda (file)
-       (let ((file-full-path (make-pathname git-dir file)))
-         (if (directory? file-full-path)
-             (let ((out-dir (make-pathname output-dir file)))
-               (create-directory out-dir)
-               (git-repo->html file-full-path out-dir link-parent?: #t))
-             (with-output-to-file (make-pathname output-dir file "html")
-               (lambda ()
-                 (display
-                  (html-page
-                   `(pre
-                     ,(with-input-from-file file-full-path read-string))
-                   title: file)))))))
-     dir-content)))
+  (with-output-to-file (make-pathname output-dir "index.html")
+    (lambda ()
+      (display
+       (html-page
+        `(,(create-preambule git-dir)
+          (table
+           ,@(map (lambda (branch)
+                    `(tr
+                      (td (bold ,branch))
+                      (td (a (@ (href ,(make-pathname branch "files"))) "files"))
+                      (td (a (@ (href ,(make-pathname branch "commits"))) "commits"))))
+                  branches))))))))
+
+(define (create-branch-index git-dir branch output-dir)
+  (let ((branch-dir (make-pathname output-dir branch)))
+    (create-directory branch-dir 'parents)
+    (with-output-to-file (make-pathname branch-dir "index.html")
+      (lambda ()
+        (display
+         (html-page
+          `(,(create-preambule git-dir branch: branch)
+            (ul
+             (li (a (@ (href "files")) "files"))
+             (li (a (@ (href "commits")) "commits"))))))))))
+
+(define (repo-commits->html git-dir output-dir #!key branch)
+  (let ((max-log-lines 50)
+        (log '())
+        (out-dir (make-pathname
+                    (if branch
+                        (list output-dir branch)
+                        output-dir)
+                    "commits")))
+    (with-input-from-pipe
+        (sprintf "git -C ~a log --pretty='format:%H%x09%an%x09%s' | head -n ~a"
+                 (qs git-dir)
+                 ;; Little hack to detect whether there are more
+                 ;; commits than what we are gonna show
+                 (+ 1 max-log-lines))
+      (lambda ()
+        (let loop ()
+          (let ((line (read-line)))
+            (unless (eof-object? line)
+              (set! log (cons line log))
+              (loop))))))
+
+    (create-directory out-dir 'parents)
+    (let ((html-log '()))
+      (for-each (lambda (line)
+                  (let* ((tokens (string-split line "\t"))
+                         (hash (car tokens))
+                         (author (cadr tokens))
+                         (subject (caddr tokens))
+                         (commit (with-input-from-pipe (sprintf "git -C ~a show ~a"
+                                                                (qs git-dir)
+                                                                (qs hash))
+                                   read-string)))
+                    (set! html-log (cons `(tr
+                                           (td (a (@ (href ,(make-pathname #f hash "html")))
+                                                  ,hash))
+                                           (td ,author)
+                                           (td ,subject))
+                                         html-log))
+                    (with-output-to-file (make-pathname out-dir hash "html")
+                      (lambda ()
+                        (display
+                         (html-page
+                          `(pre ,commit)))))))
+                log)
+      (with-output-to-file (make-pathname out-dir "index.html")
+        (lambda ()
+          (display
+           (html-page
+            `(,(create-preambule git-dir branch: branch)
+              (table ,(butlast html-log))
+              ,(if (> (length html-log) max-log-lines)
+                   `(p "The history displayed here is incomplete. "
+                       "Check out the repository to see the full history.")
+                   '()))
+            )))))))
 
 (let ((git-dir #f)
-      (output-dir #f))
+      (output-dir #f)
+      (branches '()))
   (let loop ((args (command-line-arguments)))
     (unless (null? args)
       (let ((arg (car args)))
@@ -118,6 +241,11 @@ EOF
                (when (null? (cdr args))
                  (die! "-o: missing argument"))
                (set! output-dir (cadr args))
+               (loop (cddr args)))
+              ((string=? arg "-b")
+               (when (null? (cdr args))
+                 (die! "-b: missing argument"))
+               (set! branches (cons (cadr args) branches))
                (loop (cddr args)))
               (else
                (when git-dir
@@ -127,7 +255,15 @@ EOF
   (unless (and output-dir git-dir)
     (usage 2))
 
-  (git-repo->html git-dir output-dir)
+  (if (null? branches)
+      (repo-files->html git-dir output-dir)
+      (begin
+        (create-project-index git-dir branches output-dir)
+        (for-each (lambda (branch)
+                    (create-branch-index git-dir branch output-dir)
+                    (repo-files->html git-dir output-dir branch: branch)
+                    (repo-commits->html git-dir output-dir branch: branch))
+                  branches)))
   )
 
 ) ;; end module
