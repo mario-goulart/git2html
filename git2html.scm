@@ -10,7 +10,6 @@
 ;; * parse configuration file
 ;; * Support svn
 ;; * Test bare repo
-;; * List dotfiles
 
 (import scheme)
 (import (chicken base)
@@ -80,7 +79,7 @@ EOF
                   dir-content))))))))
 
 (define (list-directory dir)
-  (let ((files (directory dir)))
+  (let ((files (delete ".git" (directory dir 'dotfiles) string=?)))
     ;; Directories first
     (append (sort (filter (lambda (file)
                             (directory? (make-pathname dir file)))
