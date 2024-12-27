@@ -4,12 +4,12 @@
 ;; * create-preambule for files and commits
 ;; * Links to home and files/commits in the preambule
 ;; * Number lines (+ links to lines)
-;; * Paginate commits
 ;; * Hard-link commits in different branches
 ;; * Check overwrite of files
 ;; * Handle symlinks
-;; * git show --format=fuller
 ;; * parse configuration file
+;; * Support svn
+;; * Test bare repo
 
 (import scheme)
 (import (chicken base)
