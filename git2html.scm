@@ -8,7 +8,6 @@
 ;; * Handle symlinks
 ;; * parse configuration file
 ;; * Support svn
-;; * Test bare repo
 
 (import scheme)
 (import (chicken base)
@@ -31,7 +30,15 @@
                    (current-output-port)))
          (prog (pathname-strip-directory (program-name)))
          (msg #<#EOF
-Usage: #prog -o <output-dir> [-b <branch>]  <git-repo-dir>
+Usage: #prog [<options>] <git-repo-dir> <output-dir>
+
+<options>:
+
+-b|-branch <branch>
+    Branch to generate HTML files for. May be provided multiple times.
+
+-f|-force-regenerate
+    Force the regeneration of HTML files.
 
 EOF
 ))
@@ -188,7 +195,7 @@ EOF
              (li (a (@ (href "files")) "files"))
              (li (a (@ (href "commits")) "commits"))))))))))
 
-(define (repo-commits->html git-dir output-dir #!key branch)
+(define (repo-commits->html git-dir output-dir #!key branch force-regenerate)
   (let ((log '())
         (out-dir (make-pathname
                     (if branch
@@ -220,7 +227,7 @@ EOF
                                   (td ,author)
                                   (td ,subject))
                                 html-log))
-           (unless (file-exists? commit-file)
+           (when (or force-regenerate (not (file-exists? commit-file)))
              (let ((commit
                     (with-input-from-pipe
                         (sprintf "git -C ~a show --format=fuller ~a"
@@ -242,30 +249,34 @@ EOF
            (html-page
             `(,(create-preambule git-dir 2 ;; +2 is for <branch>/files
                                  branch: branch)
-              (table ,(butlast html-log)))
-            )))))))
+              (table ,(butlast html-log))))))))))
 
 (let ((git-dir #f)
       (output-dir #f)
-      (branches '()))
+      (branches '())
+      (force-regenerate #f))
   (let loop ((args (command-line-arguments)))
     (unless (null? args)
       (let ((arg (car args)))
-        (cond ((string=? arg "-o")
-               (when (null? (cdr args))
-                 (die! "-o: missing argument"))
-               (set! output-dir (cadr args))
-               (loop (cddr args)))
-              ((string=? arg "-b")
+        (cond ((member arg '("-h" "-help" "--help"))
+               (usage 0))
+              ((member arg '("-b" "-branch"))
                (when (null? (cdr args))
                  (die! "-b: missing argument"))
                (set! branches (cons (cadr args) branches))
                (loop (cddr args)))
+              ((member arg '("-f" "-force-regenerate"))
+               (set! force-regenerate #t)
+               (loop (cdr args)))
               (else
-               (when git-dir
-                 (usage 2))
-               (set! git-dir arg)
+               (cond ((and git-dir output-dir)
+                      (die! "Invalid option: ~a" arg))
+                     ((and (not git-dir) (not output-dir))
+                      (set! git-dir arg))
+                     ((not output-dir)
+                      (set! output-dir arg)))
                (loop (cdr args)))))))
+
   (unless (and output-dir git-dir)
     (usage 2))
 
@@ -276,7 +287,9 @@ EOF
         (for-each (lambda (branch)
                     (create-branch-index git-dir branch output-dir)
                     (repo-files->html git-dir output-dir branch: branch)
-                    (repo-commits->html git-dir output-dir branch: branch))
+                    (repo-commits->html git-dir output-dir
+                                        branch: branch
+                                        force-regenerate: force-regenerate))
                   branches)))
   )
 
