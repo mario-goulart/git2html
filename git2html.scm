@@ -2,11 +2,14 @@
 
 ;; TODO
 ;; * create-preambule for files and commits
+;; * Links to home and files/commits in the preambule
 ;; * Number lines (+ links to lines)
 ;; * Paginate commits
 ;; * Hard-link commits in different branches
 ;; * Check overwrite of files
 ;; * Handle symlinks
+;; * git show --format=fuller
+;; * parse configuration file
 
 ;; FIXME
 (import big-chicken)
@@ -83,12 +86,12 @@ EOF
 
 (define (create-preambule git-dir #!key branch path)
   (let ((repo-name (pathname-strip-directory (string-chomp git-dir "/"))))
-    `((h1 (code ,repo-name)
+    `((h1 ,repo-name
           ,(if branch
-               `((literal "&nbsp") (code ,(sprintf "(~a)" branch)))
+               `((literal "&nbsp") ,(sprintf "(~a)" branch))
                '())
           ,(if path
-               `((literal "&nbsp") (code ,path))
+               `((literal "&nbsp") ,path)
                '()))
       (hr))))
 
@@ -176,19 +179,14 @@ EOF
              (li (a (@ (href "commits")) "commits"))))))))))
 
 (define (repo-commits->html git-dir output-dir #!key branch)
-  (let ((max-log-lines 50)
-        (log '())
+  (let ((log '())
         (out-dir (make-pathname
                     (if branch
                         (list output-dir branch)
                         output-dir)
                     "commits")))
     (with-input-from-pipe
-        (sprintf "git -C ~a log --pretty='format:%H%x09%an%x09%s' | head -n ~a"
-                 (qs git-dir)
-                 ;; Little hack to detect whether there are more
-                 ;; commits than what we are gonna show
-                 (+ 1 max-log-lines))
+        (sprintf "git -C ~a log --pretty='format:%H%x09%an%x09%s'" (qs git-dir))
       (lambda ()
         (let loop ()
           (let ((line (read-line)))
@@ -198,37 +196,38 @@ EOF
 
     (create-directory out-dir 'parents)
     (let ((html-log '()))
-      (for-each (lambda (line)
-                  (let* ((tokens (string-split line "\t"))
-                         (hash (car tokens))
-                         (author (cadr tokens))
-                         (subject (caddr tokens))
-                         (commit (with-input-from-pipe (sprintf "git -C ~a show ~a"
-                                                                (qs git-dir)
-                                                                (qs hash))
-                                   read-string)))
-                    (set! html-log (cons `(tr
-                                           (td (a (@ (href ,(make-pathname #f hash "html")))
-                                                  ,hash))
-                                           (td ,author)
-                                           (td ,subject))
-                                         html-log))
-                    (with-output-to-file (make-pathname out-dir hash "html")
-                      (lambda ()
-                        (display
-                         (html-page
-                          `(pre ,commit)))))))
-                log)
+      (for-each
+       (lambda (line)
+         (let* ((tokens (string-split line "\t"))
+                (hash (car tokens))
+                (author (cadr tokens))
+                (subject (caddr tokens))
+                (commit-file (make-pathname out-dir hash "html")))
+           (set! html-log (cons `(tr
+                                  (td (a (@ (href ,commit-file))
+                                         ,hash))
+                                  (td ,author)
+                                  (td ,subject))
+                                html-log))
+           (unless (file-exists? commit-file)
+             (let ((commit
+                    (with-input-from-pipe
+                        (sprintf "git -C ~a show --format=fuller ~a"
+                                 (qs git-dir)
+                                 (qs hash))
+                      read-string)))
+               (with-output-to-file commit-file
+                 (lambda ()
+                   (display
+                    (html-page
+                     `(pre ,commit)))))))))
+       log)
       (with-output-to-file (make-pathname out-dir "index.html")
         (lambda ()
           (display
            (html-page
             `(,(create-preambule git-dir branch: branch)
-              (table ,(butlast html-log))
-              ,(if (> (length html-log) max-log-lines)
-                   `(p "The history displayed here is incomplete. "
-                       "Check out the repository to see the full history.")
-                   '()))
+              (table ,(butlast html-log)))
             )))))))
 
 (let ((git-dir #f)
