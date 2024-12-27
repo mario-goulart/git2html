@@ -231,7 +231,10 @@ EOF
                  (lambda ()
                    (display
                     (html-page
-                     `(pre ,commit)))))))))
+                     `(,(create-preambule git-dir 2 ;; +2 is for <branch>/files
+                                          path: hash
+                                          branch: branch)
+                       (pre ,commit))))))))))
        log)
       (with-output-to-file (make-pathname out-dir "index.html")
         (lambda ()
