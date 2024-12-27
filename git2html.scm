@@ -1,8 +1,7 @@
 (module git2html ()
 
 ;; TODO
-;; * create-preambule for files and commits
-;; * Links to home and files/commits in the preambule
+;; * Breadcrumbs for paths
 ;; * Number lines (+ links to lines)
 ;; * Hard-link commits in different branches
 ;; * Check overwrite of files
@@ -92,15 +91,24 @@ EOF
                      files)
              string<=?))))
 
-(define (create-preambule git-dir #!key branch path)
+(define (depth->relative-path depth path)
+  (let loop ((depth depth))
+    (if (zero? depth)
+        path
+        (make-pathname ".." (loop (sub1 depth))))))
+
+(define (create-preambule git-dir depth #!key branch path)
   (let ((repo-name (pathname-strip-directory (string-chomp git-dir "/"))))
-    `((h1 ,repo-name
-          ,(if branch
-               `((literal "&nbsp") ,(sprintf "(~a)" branch))
-               '())
-          ,(if path
-               `((literal "&nbsp") ,path)
-               '()))
+    `((p (a (@ (href ,(depth->relative-path depth ""))) ,repo-name)
+         ,(if branch
+              `((literal "&nbsp")
+                "("
+                (a (@ (href ,(depth->relative-path depth branch))) ,branch)
+                ")")
+              '())
+         ,(if path
+              `((literal "&nbsp") ,path)
+              '()))
       (hr))))
 
 (define (string-prefix? maybe-substring string)
@@ -110,11 +118,14 @@ EOF
 
 (define (repo-files->html top-git-dir output-dir #!key link-parent? branch)
 
-  (define (render-listing git-dir out-dir relpath #!key (link-parent? #t))
+  (define (render-listing git-dir out-dir relpath depth #!key (link-parent? #t))
     (let* ((dir-content (list-directory git-dir))
            (%create-preambule
             (lambda (path)
-              (create-preambule top-git-dir branch: branch path: path))))
+              (create-preambule top-git-dir
+                                (+ 2 depth) ;; +2 is for <branch>/files
+                                branch: branch
+                                path: path))))
       (create-file-index
        (if link-parent?
            (cons ".." dir-content)
@@ -128,7 +139,10 @@ EOF
            (if (directory? file-full-path)
                (let ((out-dir (make-pathname out-dir file)))
                  (create-directory out-dir)
-                 (render-listing file-full-path out-dir (make-pathname relpath file)))
+                 (render-listing file-full-path
+                                 out-dir
+                                 (make-pathname relpath file)
+                                 (add1 depth)))
                (with-output-to-file (make-pathname out-dir file "html")
                  (lambda ()
                    (display
@@ -145,7 +159,7 @@ EOF
                       output-dir)
                   "files")))
     (create-directory out-dir 'parents)
-    (render-listing top-git-dir out-dir "/" link-parent?: #f)))
+    (render-listing top-git-dir out-dir "/" 0 link-parent?: #f)))
 
 (define (create-project-index git-dir branches output-dir)
   (create-directory output-dir 'parents)
@@ -153,7 +167,7 @@ EOF
     (lambda ()
       (display
        (html-page
-        `(,(create-preambule git-dir)
+        `(,(create-preambule git-dir 0)
           (table
            ,@(map (lambda (branch)
                     `(tr
@@ -169,7 +183,7 @@ EOF
       (lambda ()
         (display
          (html-page
-          `(,(create-preambule git-dir branch: branch)
+          `(,(create-preambule git-dir 1 branch: branch)
             (ul
              (li (a (@ (href "files")) "files"))
              (li (a (@ (href "commits")) "commits"))))))))))
@@ -222,7 +236,8 @@ EOF
         (lambda ()
           (display
            (html-page
-            `(,(create-preambule git-dir branch: branch)
+            `(,(create-preambule git-dir 2 ;; +2 is for <branch>/files
+                                 branch: branch)
               (table ,(butlast html-log)))
             )))))))
 
