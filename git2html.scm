@@ -212,9 +212,10 @@ EOF
                 (hash (car tokens))
                 (author (cadr tokens))
                 (subject (caddr tokens))
-                (commit-file (make-pathname #f hash "html")))
+                (commit-file (make-pathname out-dir hash "html"))
+                (web-commit-file (make-pathname #f hash "html")))
            (set! html-log (cons `(tr
-                                  (td (a (@ (href ,commit-file))
+                                  (td (a (@ (href ,web-commit-file))
                                          ,hash))
                                   (td ,author)
                                   (td ,subject))
