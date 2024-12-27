@@ -8,6 +8,7 @@
 ;; * Handle symlinks
 ;; * parse configuration file
 ;; * Support svn
+;; * Support listing files from bare repos (git ls-tree --name-only --full-tree -r master)
 
 (import scheme)
 (import (chicken base)
@@ -65,7 +66,7 @@ EOF
    `((literal "<!DOCTYPE html>")
      (html
       (head
-       (style "body { font-family: monospace, monospace; }")
+       (style "body { font-family: monospace; }")
        (title ,title))
       (body
        ,content)))))
@@ -74,7 +75,7 @@ EOF
   (with-output-to-file (make-pathname output-dir "index.html")
     (lambda ()
       (display
-       (sxml->html
+       (html-page
         `(,preambule
           (ul
            ,@(map (lambda (file)
@@ -108,13 +109,13 @@ EOF
   (let ((repo-name (pathname-strip-directory (string-chomp git-dir "/"))))
     `((p (a (@ (href ,(depth->relative-path depth ""))) ,repo-name)
          ,(if branch
-              `((literal "&nbsp")
+              `((literal "&nbsp;")
                 "("
                 (a (@ (href ,(depth->relative-path depth branch))) ,branch)
                 ")")
               '())
          ,(if path
-              `((literal "&nbsp") ,path)
+              `((literal "&nbsp;") ,path)
               '()))
       (hr))))
 
