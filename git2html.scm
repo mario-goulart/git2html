@@ -10,6 +10,7 @@
 ;; * parse configuration file
 ;; * Support svn
 ;; * Test bare repo
+;; * List dotfiles
 
 (import scheme)
 (import (chicken base)
@@ -106,45 +107,33 @@ EOF
   (let ((pos (substring-index maybe-substring string)))
     (and pos (fx= 0 pos))))
 
-(define (pathname-relative-to shortest-path longest-path)
-  (let ((shortest-path (normalize-pathname shortest-path))
-        (longest-path (normalize-pathname longest-path)))
-    (if (string-prefix? shortest-path longest-path)
-         (substring longest-path
-                    (string-length shortest-path))
-        (error 'pathname-relative-to
-               (sprintf "~a is not relative to ~a" shortest-path longest-path)))))
 
 (define (repo-files->html top-git-dir output-dir #!key link-parent? branch)
 
-  (define (render-listing git-dir out-dir #!key (link-parent? #t))
-
-    (define (%create-preambule path)
-      (create-preambule top-git-dir
-                        branch: branch
-                        path: (pathname-relative-to path out-dir)))
-
-    (let ((dir-content (list-directory git-dir)))
+  (define (render-listing git-dir out-dir relpath #!key (link-parent? #t))
+    (let* ((dir-content (list-directory git-dir))
+           (%create-preambule
+            (lambda (path)
+              (create-preambule top-git-dir branch: branch path: path))))
       (create-file-index
        (if link-parent?
            (cons ".." dir-content)
            dir-content)
        git-dir
        out-dir
-       preambule: (%create-preambule
-                   (make-pathname (list output-dir branch) "files")))
+       preambule: (%create-preambule relpath))
       (for-each
        (lambda (file)
          (let ((file-full-path (make-pathname git-dir file)))
            (if (directory? file-full-path)
                (let ((out-dir (make-pathname out-dir file)))
                  (create-directory out-dir)
-                 (render-listing file-full-path out-dir))
+                 (render-listing file-full-path out-dir (make-pathname relpath file)))
                (with-output-to-file (make-pathname out-dir file "html")
                  (lambda ()
                    (display
                     (html-page
-                     `(;; ,(%create-preambule (make-pathname (list output-dir branch "files") file))
+                     `(,(%create-preambule (make-pathname relpath file))
                        (pre
                         ,(with-input-from-file file-full-path read-string)))
                      title: file)))))))
@@ -156,7 +145,7 @@ EOF
                       output-dir)
                   "files")))
     (create-directory out-dir 'parents)
-    (render-listing top-git-dir out-dir link-parent?: #f)))
+    (render-listing top-git-dir out-dir "/" link-parent?: #f)))
 
 (define (create-project-index git-dir branches output-dir)
   (create-directory output-dir 'parents)
