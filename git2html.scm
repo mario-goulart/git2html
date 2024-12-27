@@ -11,13 +11,20 @@
 ;; * git show --format=fuller
 ;; * parse configuration file
 
-;; FIXME
-(import big-chicken)
-(import sxml-transforms srfi-1)
-
-(import (chicken format)
+(import scheme)
+(import (chicken base)
+        (chicken file)
+        (chicken file posix)
+        (chicken fixnum)
+        (chicken format)
+        (chicken io)
         (chicken pathname)
-        (chicken process-context))
+        (chicken port)
+        (chicken process)
+        (chicken process-context)
+        (chicken sort)
+        (chicken string))
+(import sxml-transforms srfi-1)
 
 (define (usage #!optional exit-code)
   (let* ((port (if (and exit-code (not (zero? exit-code)))
