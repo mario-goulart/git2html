@@ -59,6 +59,7 @@ EOF
    `((literal "<!DOCTYPE html>")
      (html
       (head
+       (style "body { font-family: monospace, monospace; }")
        (title ,title))
       (body
        ,content)))))
