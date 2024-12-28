@@ -295,17 +295,17 @@ EOF
   (unless (and output-dir git-dir)
     (usage 2))
 
-  (if (null? branches)
-      (git-repo-files->html git-dir output-dir)
-      (begin
-        (create-project-index git-dir branches output-dir)
-        (for-each (lambda (branch)
-                    (create-branch-index git-dir branch output-dir)
-                    (git-repo-files->html git-dir output-dir branch)
-                    (repo-commits->html git-dir output-dir
-                                        branch: branch
-                                        force-regenerate: force-regenerate))
-                  branches)))
+  (let ((branches (if (null? branches)
+                      '("master")
+                      branches)))
+    (create-project-index git-dir branches output-dir)
+    (for-each (lambda (branch)
+                (create-branch-index git-dir branch output-dir)
+                (git-repo-files->html git-dir output-dir branch)
+                (repo-commits->html git-dir output-dir
+                                    branch: branch
+                                    force-regenerate: force-regenerate))
+              branches))
   )
 
 ) ;; end module
