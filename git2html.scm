@@ -97,6 +97,9 @@ EOF
     (map pathname-strip-directory sorted)))
 
 (define (depth->relative-path depth path)
+  ;; Create a relative path based on the depth of `path' in a certain
+  ;; directory.  Example:
+  ;;   (depth->relative-path 2 "foo") => "../../foo"
   (let loop ((depth depth))
     (if (zero? depth)
         path
@@ -116,7 +119,7 @@ EOF
               '()))
       (hr))))
 
-(define (read-file-from-bare-repo top-git-dir file branch)
+(define (read-git-file top-git-dir file branch)
   (with-input-from-pipe (sprintf "git -C ~a show ~a:~a"
                                  (qs top-git-dir)
                                  (qs branch)
@@ -129,15 +132,6 @@ EOF
                (qs top-git-dir)
                (qs branch))
     read-lines))
-
-(define (list-git-bare-repo-dir dir listing)
-  (let loop ((listing listing))
-    (if (null? listing)
-        '()
-        (let ((path (car listing)))
-          (if (string-prefix? (string-append (string-chomp dir "/") "/") path)
-              (cons path (loop (cdr listing)))
-              (loop (cdr listing)))))))
 
 (define (git-repo-files->html top-git-dir output-dir branch)
   (let ((out-dir (make-pathname (list output-dir branch) "files"))
@@ -163,7 +157,7 @@ EOF
                                 branch: branch
                                 path: (make-absolute-pathname #f file))
              (pre
-              ,(read-file-from-bare-repo top-git-dir file branch)))
+              ,(read-git-file top-git-dir file branch)))
            title: file)))
      listing)
 
@@ -216,7 +210,7 @@ EOF
          (li (a (@ (href "files")) "files"))
          (li (a (@ (href "commits")) "commits")))))))
 
-(define (repo-commits->html git-dir output-dir #!key branch force-regenerate)
+(define (git-repo-commits->html git-dir output-dir #!key branch force-regenerate)
   (let ((log '())
         (out-dir (make-pathname
                     (if branch
@@ -302,9 +296,9 @@ EOF
     (for-each (lambda (branch)
                 (create-branch-index git-dir branch output-dir)
                 (git-repo-files->html git-dir output-dir branch)
-                (repo-commits->html git-dir output-dir
-                                    branch: branch
-                                    force-regenerate: force-regenerate))
+                (git-repo-commits->html git-dir output-dir
+                                        branch: branch
+                                        force-regenerate: force-regenerate))
               branches))
   )
 
