@@ -109,7 +109,7 @@ td, th { padding: 2px; padding-right: 10px}
         path
         (make-pathname ".." (loop (sub1 depth))))))
 
-(define (create-preambule git-dir depth #!key branch path)
+(define (create-preamble git-dir depth #!key branch path)
   (let ((repo-name (pathname-strip-directory (string-chomp git-dir "/"))))
     `((p (a (@ (href ,(depth->relative-path depth ""))) ,repo-name)
          ,(if branch
@@ -156,10 +156,10 @@ td, th { padding: 2px; padding-right: 10px}
               (depth (string-count file #\/)))
          (create-directory (make-pathname out-dir rel-dir) 'parents)
          (write-html-page (make-pathname out-dir file "html")
-           `(,(create-preambule top-git-dir
-                                (+ 2 depth) ;; +2 is for <branch>/files
-                                branch: branch
-                                path: (make-absolute-pathname #f file))
+           `(,(create-preamble top-git-dir
+                               (+ 2 depth) ;; +2 is for <branch>/files
+                               branch: branch
+                               path: (make-absolute-pathname #f file))
              (pre
               ,(read-git-file top-git-dir file branch)))
            title: file)))
@@ -175,10 +175,10 @@ td, th { padding: 2px; padding-right: 10px}
                                  (sort-files dir)
                                  (cons ".." (sort-files dir)))))
            (write-html-page (make-pathname dir "index.html")
-             `(,(create-preambule top-git-dir
-                                  (+ 2 depth)  ;; +2 is for <branch>/files
-                                  branch: branch
-                                  path: (make-absolute-pathname #f rel-dir))
+             `(,(create-preamble top-git-dir
+                                 (+ 2 depth)  ;; +2 is for <branch>/files
+                                 branch: branch
+                                 path: (make-absolute-pathname #f rel-dir))
                (ul
                 ,@(map (lambda (file)
                          (let ((dir? (directory? (make-pathname dir file))))
@@ -194,7 +194,7 @@ td, th { padding: 2px; padding-right: 10px}
 (define (create-project-index git-dir branches output-dir)
   (create-directory output-dir 'parents)
   (write-html-page (make-pathname output-dir "index.html")
-    `(,(create-preambule git-dir 0)
+    `(,(create-preamble git-dir 0)
       (table
        ,@(map (lambda (branch)
                 `(tr
@@ -209,7 +209,7 @@ td, th { padding: 2px; padding-right: 10px}
   (let ((branch-dir (make-pathname output-dir branch)))
     (create-directory branch-dir 'parents)
     (write-html-page (make-pathname branch-dir "index.html")
-      `(,(create-preambule git-dir 1 branch: branch)
+      `(,(create-preamble git-dir 1 branch: branch)
         (ul
          (li (a (@ (href "files")) "files"))
          (li (a (@ (href "commits")) "commits")))))))
@@ -254,14 +254,14 @@ td, th { padding: 2px; padding-right: 10px}
                                  (qs hash))
                       read-string)))
                (write-html-page commit-file
-                 `(,(create-preambule git-dir 2 ;; +2 is for <branch>/files
-                                      path: hash
-                                      branch: branch)
+                 `(,(create-preamble git-dir 2 ;; +2 is for <branch>/files
+                                     path: hash
+                                     branch: branch)
                    (pre ,commit)))))))
        log)
       (write-html-page (make-pathname out-dir "index.html")
-        `(,(create-preambule git-dir 2 ;; +2 is for <branch>/files
-                             branch: branch)
+        `(,(create-preamble git-dir 2 ;; +2 is for <branch>/files
+                            branch: branch)
           (table ,(butlast html-log)))))))
 
 (let ((git-dir #f)
