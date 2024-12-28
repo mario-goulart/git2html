@@ -2,7 +2,6 @@
 
 ;; TODO
 ;; * Breadcrumbs for paths
-;; * Number lines (+ links to lines)
 ;; * Hard-link commits in different branches
 ;; * Check overwrite of files
 ;; * Handle symlinks
@@ -73,7 +72,9 @@ EOF
        (style "\
 body { font-family: monospace, monospace; }
 table td { white-space: nowrap; }
-td, th { padding: 2px; padding-right: 10px}
+td, th { padding: 2px; padding-right: 10px; }
+pre.code { overflow: auto; }
+pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 ")
        (title ,title))
       (body
@@ -128,7 +129,28 @@ td, th { padding: 2px; padding-right: 10px}
                                  (qs top-git-dir)
                                  (qs branch)
                                  (qs file))
-    read-string))
+    read-lines))
+
+(define (num-digits n)
+  (inexact->exact (floor (add1 (log n 10)))))
+
+(define (pad-lineno lineno max-digits)
+  (let ((lineno-num-digits (num-digits lineno)))
+    (let loop ((max-digits max-digits))
+      (if (= lineno-num-digits max-digits)
+          (list lineno)
+          (cons '(literal "&nbsp;") (loop (sub1 max-digits)))))))
+
+(define (enumerate-lines lines)
+  (let ((max-digits (num-digits (length lines))))
+    `(pre (@ (class "code"))
+          ,@(map (lambda (line lineno)
+                   `(code (@ (id ,(sprintf "L~a" lineno)))
+                          (a (@ (href ,(sprintf "#L~a" lineno)))
+                             ,(pad-lineno lineno max-digits))
+                          ,(string-append line "\n")))
+                 lines
+                 (iota (length lines) 1)))))
 
 (define (list-git-repo top-git-dir branch)
   (with-input-from-pipe
@@ -160,8 +182,7 @@ td, th { padding: 2px; padding-right: 10px}
                                (+ 2 depth) ;; +2 is for <branch>/files
                                branch: branch
                                path: (make-absolute-pathname #f file))
-             (pre
-              ,(read-git-file top-git-dir file branch)))
+             ,(enumerate-lines (read-git-file top-git-dir file branch)))
            title: file)))
      listing)
 
