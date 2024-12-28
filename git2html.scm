@@ -236,13 +236,19 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                  path: (make-absolute-pathname #f rel-dir))
                (ul
                 ,@(map (lambda (file)
-                         (let ((dir? (directory? (make-pathname dir file))))
-                           `(li (a (@ (href ,(make-pathname #f
-                                                            (pathname-file file)
-                                                            (if dir? #f "html"))))
+                         (let ((dir? (directory? (make-pathname dir file)))
+                               (get-filename
+                                (lambda (file)
+                                  (if (string-suffix? ".html" file)
+                                      (pathname-file file)
+                                      (pathname-strip-directory file)))))
+                           `(li (a (@ (href ,(make-pathname
+                                              #f
+                                              (get-filename file)
+                                              (if dir? #f "html"))))
                                    ,(if dir?
                                         (string-append file "/")
-                                        (pathname-file file))))))
+                                        (get-filename file))))))
                        dir-content)))
              title: (page-title (make-absolute-pathname #f rel-dir)))))
        dirs))))
