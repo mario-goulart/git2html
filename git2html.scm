@@ -43,7 +43,7 @@ Usage: #prog [<options>] <git-repo-dir> <output-dir>
     Branch to generate HTML files for. May be provided multiple times.
 
 -f|-force-regenerate
-    Force the regeneration of HTML files.
+    Force the regeneration of HTML files for commits.
 
 EOF
 ))
