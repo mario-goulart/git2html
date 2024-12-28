@@ -3,7 +3,6 @@
 ;; TODO
 ;; * Breadcrumbs for paths
 ;; * Configuration option to specify binary files which should not have a .html suffix
-;; * Hard-link commits in different branches
 ;; * Check overwrite of files
 ;; * Handle symlinks
 ;; * Support svn?
@@ -324,11 +323,15 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 
 (define (git-repo-commits->html git-dir output-dir #!key branch force-regenerate)
   (let ((log '())
-        (out-dir (make-pathname
-                    (if branch
-                        (list output-dir branch)
-                        output-dir)
-                    "commits")))
+        ;; Directory for all commits -- branch-specific commits will
+        ;; link to files here.
+        (commits-dir (make-pathname (list output-dir ".git") "commits"))
+        (branch-commits-dir (make-pathname
+                             (if branch
+                                 (list output-dir branch)
+                                 output-dir)
+                             "commits")))
+    (create-directory commits-dir 'parents)
     (run-git (sprintf "-C ~a log --pretty='format:%H%x09%an%x09%s'"
                       (qs git-dir))
              (lambda ()
@@ -337,7 +340,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                    (unless (eof-object? line)
                      (set! log (cons line log))
                      (loop))))))
-    (create-directory out-dir 'parents)
+    (create-directory branch-commits-dir 'parents)
     (let ((html-log '()))
       (for-each
        (lambda (line)
@@ -345,7 +348,8 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                 (hash (car tokens))
                 (author (cadr tokens))
                 (subject (caddr tokens))
-                (commit-file (make-pathname out-dir hash "html"))
+                (commit-file (make-pathname commits-dir hash "html"))
+                (branch-commit-file (make-pathname branch-commits-dir hash "html"))
                 (web-commit-file (make-pathname #f hash "html")))
            (set! html-log (cons `(tr
                                   (td (a (@ (href ,web-commit-file))
@@ -364,9 +368,14 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                      path: hash
                                      branch: branch)
                    (pre ,commit))
-                 title: (page-title hash))))))
+                 title: (page-title hash))))
+           (handle-exceptions exn
+             (unless (eq? (get-condition-property exn 'exn 'errno) errno/exist)
+               (signal exn))
+             (file-link commit-file branch-commit-file))))
        log)
-      (write-html-page (make-pathname out-dir "index.html")
+      ;; Table of branch commits
+      (write-html-page (make-pathname branch-commits-dir "index.html")
         `(,(create-preamble git-dir 2 ;; +2 is for <branch>/files
                             branch: branch)
           (table ,(butlast html-log)))
