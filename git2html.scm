@@ -8,10 +8,14 @@
 ;; * Handle symlinks
 ;; * parse configuration file
 ;; * Support svn
-;; * Support listing files from bare repos (git ls-tree --name-only --full-tree -r master)
+;; * Locking
+;; * Replace with-input-from-pipe with some other process method with better error checking and without going through a shell
+;; Configuration option to specify binary files which should not have a .html suffix
 
 (import scheme)
 (import (chicken base)
+        (chicken condition)
+        (chicken errno)
         (chicken file)
         (chicken file posix)
         (chicken fixnum)
@@ -23,7 +27,7 @@
         (chicken process-context)
         (chicken sort)
         (chicken string))
-(import sxml-transforms srfi-1)
+(import sxml-transforms srfi-1 srfi-13)
 
 (define (usage #!optional exit-code)
   (let* ((port (if (and exit-code (not (zero? exit-code)))
@@ -43,6 +47,7 @@ Usage: #prog [<options>] <git-repo-dir> <output-dir>
 
 EOF
 ))
+;;| This is to prevent Emacs' syntax highlighter from screwing up
     (fprintf port msg)
     (when exit-code (exit exit-code))))
 
@@ -51,7 +56,6 @@ EOF
                        (cons (string-append fmt "\n")
                              args)))
   (exit 1))
-
 
 (define sxml->html
   (let ((rules `((literal *preorder* . ,(lambda (t b) b))
@@ -71,33 +75,26 @@ EOF
       (body
        ,content)))))
 
-(define (create-file-index dir-content git-dir output-dir #!key (preambule '()))
-  (with-output-to-file (make-pathname output-dir "index.html")
+(define (write-html-page file sxml #!key (title ""))
+  (with-output-to-file file
     (lambda ()
       (display
-       (html-page
-        `(,preambule
-          (ul
-           ,@(map (lambda (file)
-                    (let ((dir? (directory? (make-pathname git-dir file))))
-                      `(li (a (@ (href ,(make-pathname #f file (if dir? #f "html"))))
-                              ,(if dir?
-                                   (string-append file "/")
-                                   file)))))
-                  dir-content))))))))
+       (html-page sxml title: title)))))
 
-(define (list-directory dir)
-  (let ((files (delete ".git" (directory dir 'dotfiles) string=?)))
-    ;; Directories first
-    (append (sort (filter (lambda (file)
-                            (directory? (make-pathname dir file)))
-                          files)
-                  string<=?)
-            (sort
-             (remove (lambda (file)
-                       (directory? (make-pathname dir file)))
-                     files)
-             string<=?))))
+(define (sort-files abs-dir)
+  ;; Directories first
+  (let* ((files (directory abs-dir))
+         (sorted
+          (append (sort (filter (lambda (file)
+                                  (directory? (make-pathname abs-dir file)))
+                                files)
+                        string<=?)
+                  (sort
+                   (remove (lambda (file)
+                             (directory? (make-pathname abs-dir file)))
+                           files)
+                   string<=?))))
+    (map pathname-strip-directory sorted)))
 
 (define (depth->relative-path depth path)
   (let loop ((depth depth))
@@ -119,82 +116,105 @@ EOF
               '()))
       (hr))))
 
-(define (string-prefix? maybe-substring string)
-  (let ((pos (substring-index maybe-substring string)))
-    (and pos (fx= 0 pos))))
+(define (read-file-from-bare-repo top-git-dir file branch)
+  (with-input-from-pipe (sprintf "git -C ~a show ~a:~a"
+                                 (qs top-git-dir)
+                                 (qs branch)
+                                 (qs file))
+    read-string))
 
+(define (list-git-bare-repo top-git-dir branch)
+  (with-input-from-pipe
+      (sprintf "git -C ~a ls-tree --name-only --full-tree -r ~a"
+               (qs top-git-dir)
+               (qs branch))
+    read-lines))
 
-(define (repo-files->html top-git-dir output-dir #!key link-parent? branch)
+(define (list-git-bare-repo-dir dir listing)
+  (let loop ((listing listing))
+    (if (null? listing)
+        '()
+        (let ((path (car listing)))
+          (if (string-prefix? (string-append (string-chomp dir "/") "/") path)
+              (cons path (loop (cdr listing)))
+              (loop (cdr listing)))))))
 
-  (define (render-listing git-dir out-dir relpath depth #!key (link-parent? #t))
-    (let* ((dir-content (list-directory git-dir))
-           (%create-preambule
-            (lambda (path)
-              (create-preambule top-git-dir
+(define (git-repo-files->html top-git-dir output-dir branch)
+  (let ((out-dir (make-pathname (list output-dir branch) "files"))
+        (listing (list-git-bare-repo top-git-dir branch)))
+    ;; Even in incremental mode we have to remove the directory
+    ;; containing files, as commits might have removed them, in which
+    ;; case they would still be displayed.
+    (handle-exceptions exn
+      (unless (eq? (get-condition-property exn 'exn 'errno) errno/noent)
+        (signal exn))
+      (delete-directory out-dir 'recursively))
+    (create-directory out-dir 'parents)
+
+    ;; Create files
+    (for-each
+     (lambda (file)
+       (let* ((rel-dir (pathname-directory file))
+              (depth (string-count file #\/)))
+         (create-directory (make-pathname out-dir rel-dir) 'parents)
+         (write-html-page (make-pathname out-dir file "html")
+           `(,(create-preambule top-git-dir
                                 (+ 2 depth) ;; +2 is for <branch>/files
                                 branch: branch
-                                path: path))))
-      (create-file-index
-       (if link-parent?
-           (cons ".." dir-content)
-           dir-content)
-       git-dir
-       out-dir
-       preambule: (%create-preambule relpath))
-      (for-each
-       (lambda (file)
-         (let ((file-full-path (make-pathname git-dir file)))
-           (if (directory? file-full-path)
-               (let ((out-dir (make-pathname out-dir file)))
-                 (create-directory out-dir)
-                 (render-listing file-full-path
-                                 out-dir
-                                 (make-pathname relpath file)
-                                 (add1 depth)))
-               (with-output-to-file (make-pathname out-dir file "html")
-                 (lambda ()
-                   (display
-                    (html-page
-                     `(,(%create-preambule (make-pathname relpath file))
-                       (pre
-                        ,(with-input-from-file file-full-path read-string)))
-                     title: file)))))))
-       dir-content)))
+                                path: (make-absolute-pathname #f file))
+             (pre
+              ,(read-file-from-bare-repo top-git-dir file branch)))
+           title: file)))
+     listing)
 
-  (let ((out-dir (make-pathname
-                  (if branch
-                      (list output-dir branch)
-                      output-dir)
-                  "files")))
-    (create-directory out-dir 'parents)
-    (render-listing top-git-dir out-dir "/" 0 link-parent?: #f)))
+    ;; Create index.html files for directory listings
+    (let ((dirs (cons out-dir (find-files out-dir test: directory?))))
+      (for-each
+       (lambda (dir)
+         (let* ((rel-dir (substring dir (string-length (string-chomp out-dir "/"))))
+                (depth (string-count rel-dir #\/))
+                (dir-content (if (zero? depth)
+                                 (sort-files dir)
+                                 (cons ".." (sort-files dir)))))
+           (write-html-page (make-pathname dir "index.html")
+             `(,(create-preambule top-git-dir
+                                  (+ 2 depth)  ;; +2 is for <branch>/files
+                                  branch: branch
+                                  path: (make-absolute-pathname #f rel-dir))
+               (ul
+                ,@(map (lambda (file)
+                         (let ((dir? (directory? (make-pathname dir file))))
+                           `(li (a (@ (href ,(make-pathname #f
+                                                            (pathname-file file)
+                                                            (if dir? #f "html"))))
+                                   ,(if dir?
+                                        (string-append file "/")
+                                        (pathname-file file))))))
+                       dir-content))))))
+       dirs))))
 
 (define (create-project-index git-dir branches output-dir)
   (create-directory output-dir 'parents)
-  (with-output-to-file (make-pathname output-dir "index.html")
-    (lambda ()
-      (display
-       (html-page
-        `(,(create-preambule git-dir 0)
-          (table
-           ,@(map (lambda (branch)
-                    `(tr
-                      (td (bold ,branch))
-                      (td (a (@ (href ,(make-pathname branch "files"))) "files"))
-                      (td (a (@ (href ,(make-pathname branch "commits"))) "commits"))))
-                  branches))))))))
+  (write-html-page (make-pathname output-dir "index.html")
+    `(,(create-preambule git-dir 0)
+      (table
+       ,@(map (lambda (branch)
+                `(tr
+                  (td (bold ,branch))
+                  (td (a (@ (href ,(make-pathname branch "files")))
+                         "files"))
+                  (td (a (@ (href ,(make-pathname branch "commits")))
+                         "commits"))))
+              branches)))))
 
 (define (create-branch-index git-dir branch output-dir)
   (let ((branch-dir (make-pathname output-dir branch)))
     (create-directory branch-dir 'parents)
-    (with-output-to-file (make-pathname branch-dir "index.html")
-      (lambda ()
-        (display
-         (html-page
-          `(,(create-preambule git-dir 1 branch: branch)
-            (ul
-             (li (a (@ (href "files")) "files"))
-             (li (a (@ (href "commits")) "commits"))))))))))
+    (write-html-page (make-pathname branch-dir "index.html")
+      `(,(create-preambule git-dir 1 branch: branch)
+        (ul
+         (li (a (@ (href "files")) "files"))
+         (li (a (@ (href "commits")) "commits")))))))
 
 (define (repo-commits->html git-dir output-dir #!key branch force-regenerate)
   (let ((log '())
@@ -235,22 +255,16 @@ EOF
                                  (qs git-dir)
                                  (qs hash))
                       read-string)))
-               (with-output-to-file commit-file
-                 (lambda ()
-                   (display
-                    (html-page
-                     `(,(create-preambule git-dir 2 ;; +2 is for <branch>/files
-                                          path: hash
-                                          branch: branch)
-                       (pre ,commit))))))))))
+               (write-html-page commit-file
+                 `(,(create-preambule git-dir 2 ;; +2 is for <branch>/files
+                                      path: hash
+                                      branch: branch)
+                   (pre ,commit)))))))
        log)
-      (with-output-to-file (make-pathname out-dir "index.html")
-        (lambda ()
-          (display
-           (html-page
-            `(,(create-preambule git-dir 2 ;; +2 is for <branch>/files
-                                 branch: branch)
-              (table ,(butlast html-log))))))))))
+      (write-html-page (make-pathname out-dir "index.html")
+        `(,(create-preambule git-dir 2 ;; +2 is for <branch>/files
+                             branch: branch)
+          (table ,(butlast html-log)))))))
 
 (let ((git-dir #f)
       (output-dir #f)
@@ -282,12 +296,12 @@ EOF
     (usage 2))
 
   (if (null? branches)
-      (repo-files->html git-dir output-dir)
+      (git-repo-files->html git-dir output-dir)
       (begin
         (create-project-index git-dir branches output-dir)
         (for-each (lambda (branch)
                     (create-branch-index git-dir branch output-dir)
-                    (repo-files->html git-dir output-dir branch: branch)
+                    (git-repo-files->html git-dir output-dir branch)
                     (repo-commits->html git-dir output-dir
                                         branch: branch
                                         force-regenerate: force-regenerate))
