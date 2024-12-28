@@ -70,7 +70,11 @@ EOF
    `((literal "<!DOCTYPE html>")
      (html
       (head
-       (style "body { font-family: monospace; }")
+       (style "\
+body { font-family: monospace; }
+table td { white-space: nowrap; }
+td, th { padding: 2px; padding-right: 10px}
+")
        (title ,title))
       (body
        ,content)))))
