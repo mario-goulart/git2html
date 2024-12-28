@@ -157,7 +157,9 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
     read-lines))
 
 (define (num-digits n)
-  (inexact->exact (floor (add1 (log n 10)))))
+  (if (zero? n)
+      1
+      (inexact->exact (floor (add1 (log n 10))))))
 
 (define (pad-lineno lineno max-digits)
   (let ((lineno-num-digits (num-digits lineno)))
