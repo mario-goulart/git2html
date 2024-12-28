@@ -71,7 +71,7 @@ EOF
      (html
       (head
        (style "\
-body { font-family: monospace; }
+body { font-family: monospace, monospace; }
 table td { white-space: nowrap; }
 td, th { padding: 2px; padding-right: 10px}
 ")
