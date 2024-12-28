@@ -3,7 +3,6 @@
 ;; TODO
 ;; * Breadcrumbs for paths
 ;; * Configuration option to specify binary files which should not have a .html suffix
-;; * Check overwrite of files
 ;; * Handle symlinks
 ;; * Support svn?
 
@@ -35,13 +34,6 @@
 
 ;; Will be set to the contents of the repo configuration file, if it exists
 (define *conf* '())
-
-;; Will be set to a pair (file-path . fd), where file-path is the path
-;; to the lock file in the <output-dir>/.git directory once the path
-;; to <output-dir> is determined, and fd is the file descriptor
-;; obtained when opening file-path.
-(define *lock* #f)
-
 
 (define (usage #!optional exit-code)
   (let* ((port (if (and exit-code (not (zero? exit-code)))
@@ -83,49 +75,6 @@ EOF
     (unless (zero? exit-code)
       (die! "'~a' exited ~a" cmd exit-code))
     out))
-
-(define (obtain-lock lock-dir)
-  (let ((lock-file (make-pathname lock-dir ".lock"))
-        (max-tries 30)
-        (seconds-between-retries 10)
-        ;; Lock files older than stale-log-age seconds are considered
-        ;; stale and get removed.
-        (stale-log-age 18000))
-    (create-directory lock-dir 'with-parents)
-    ;; Remove stale lock
-    (handle-exceptions exn
-      (unless (eq? (get-condition-property exn 'exn 'errno) errno/noent)
-        (signal exn))
-      (let ((lock-mtime (vector-ref (file-stat lock-file) 8))
-            (now (current-seconds)))
-        (when (< (+ lock-mtime stale-log-age) now)
-          (fprintf (current-error-port) "Deleting stale lock file ~a\n"
-                   lock-file)
-          (delete-file lock-file))))
-    ;; Try to obtain the lock
-    (let loop ((tries 0))
-      (handle-exceptions exn
-        (begin
-          (unless (eq? (get-condition-property exn 'exn 'errno) errno/exist)
-            (signal exn))
-          (if (> tries max-tries)
-              (die! "Giving up retrying to obtain the lock file.")
-              (begin
-                (fprintf (current-error-port)
-                         "Waiting for lock to be released (~a/~a)...\n"
-                         tries max-tries)
-                (sleep seconds-between-retries)
-                (loop (add1 tries)))))
-        (let ((fd (file-open lock-file (bitwise-ior open/creat open/excl))))
-          (delete-file* lock-file)
-          (set! *lock* (cons lock-file fd)))))))
-
-(define (release-lock)
-  (when *lock*
-    (handle-exceptions exn
-      'ignore
-      (file-close (cdr *lock*)))
-    (delete-file* (car *lock*))))
 
 (define sxml->html
   (let ((rules `((literal *preorder* . ,(lambda (t b) b))
@@ -432,8 +381,6 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
     (set! *repo-name*
           (pathname-file (string-chomp (normalize-pathname git-dir) "/")))
 
-    (obtain-lock (make-pathname output-dir ".git"))
-
     ;; Read repo configuration file
     (handle-exceptions exn
       (unless (eq? (get-condition-property exn 'exn 'errno) errno/noent)
@@ -454,18 +401,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                           force-regenerate: force-regenerate))
                 branches))))
 
-(set-signal-handler! signal/int
-  (lambda (signal)
-    (when *lock*
-      (release-lock))
-    (exit)))
 
-(handle-exceptions exn
-  (begin
-    (print-error-message exn)
-    (print-call-chain)
-    (release-lock))
-  (main (command-line-arguments)))
-(release-lock)
+(main (command-line-arguments))
 
 ) ;; end module
