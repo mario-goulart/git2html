@@ -7,7 +7,6 @@
 ;; * Check overwrite of files
 ;; * Handle symlinks
 ;; * Support svn?
-;; * Locking
 
 (import scheme)
 (import (chicken base)
@@ -22,10 +21,11 @@
         (chicken pathname)
         (chicken port)
         (chicken process)
+        (chicken process signal)
         (chicken process-context)
         (chicken sort)
         (chicken string))
-(import sxml-transforms srfi-1 srfi-13)
+(import srfi-1 srfi-13 sxml-transforms)
 
 ;; Will be set to #t if -link-repos-home is given on the command line
 (define *link-repos-home?* #f)
@@ -35,6 +35,13 @@
 
 ;; Will be set to the contents of the repo configuration file, if it exists
 (define *conf* '())
+
+;; Will be set to a pair (file-path . fd), where file-path is the path
+;; to the lock file in the <output-dir>/.git directory once the path
+;; to <output-dir> is determined, and fd is the file descriptor
+;; obtained when opening file-path.
+(define *lock* #f)
+
 
 (define (usage #!optional exit-code)
   (let* ((port (if (and exit-code (not (zero? exit-code)))
@@ -76,6 +83,35 @@ EOF
     (unless (zero? exit-code)
       (die! "'~a' exited ~a" cmd exit-code))
     out))
+
+(define (obtain-lock lock-dir)
+  (let ((lock-file (make-pathname lock-dir ".lock"))
+        (max-tries 30)
+        (seconds-between-retries 10))
+    (create-directory lock-dir 'with-parents)
+    (let loop ((tries 0))
+      (handle-exceptions exn
+        (begin
+          (unless (eq? (get-condition-property exn 'exn 'errno) errno/exist)
+            (signal exn))
+          (if (> tries max-tries)
+              (die! "Giving up retrying to obtain the lock file.")
+              (begin
+                (fprintf (current-error-port)
+                         "Waiting for lock to be released (~a/~a)...\n"
+                         tries max-tries)
+                (sleep seconds-between-retries)
+                (loop (add1 tries)))))
+        (let ((fd (file-open lock-file (bitwise-ior open/creat open/excl))))
+          (delete-file* lock-file)
+          (set! *lock* (cons lock-file fd)))))))
+
+(define (release-lock)
+  (when *lock*
+    (handle-exceptions exn
+      'ignore
+      (file-close (cdr *lock*)))
+    (delete-file* (car *lock*))))
 
 (define sxml->html
   (let ((rules `((literal *preorder* . ,(lambda (t b) b))
@@ -336,60 +372,75 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
           (table ,(butlast html-log)))
         title: (page-title "commits")))))
 
-(let ((git-dir #f)
-      (output-dir #f)
-      (branches '())
-      (force-regenerate #f))
-  (let loop ((args (command-line-arguments)))
-    (unless (null? args)
-      (let ((arg (car args)))
-        (cond ((member arg '("-h" "-help" "--help"))
-               (usage 0))
-              ((member arg '("-b" "-branch"))
-               (when (null? (cdr args))
-                 (die! "-b: missing argument"))
-               (set! branches (cons (cadr args) branches))
-               (loop (cddr args)))
-              ((member arg '("-f" "-force-regenerate"))
-               (set! force-regenerate #t)
-               (loop (cdr args)))
-              ((string=? arg "-link-repos-home")
-               (set! *link-repos-home?* #t)
-               (loop (cdr args)))
-              (else
-               (cond ((and git-dir output-dir)
-                      (die! "Invalid option: ~a" arg))
-                     ((and (not git-dir) (not output-dir))
-                      (set! git-dir arg))
-                     ((not output-dir)
-                      (set! output-dir arg)))
-               (loop (cdr args)))))))
+(define (main args)
+  (let ((git-dir #f)
+        (output-dir #f)
+        (branches '())
+        (force-regenerate #f))
+    (let loop ((args args))
+      (unless (null? args)
+        (let ((arg (car args)))
+          (cond ((member arg '("-h" "-help" "--help"))
+                 (usage 0))
+                ((member arg '("-b" "-branch"))
+                 (when (null? (cdr args))
+                   (die! "-b: missing argument"))
+                 (set! branches (cons (cadr args) branches))
+                 (loop (cddr args)))
+                ((member arg '("-f" "-force-regenerate"))
+                 (set! force-regenerate #t)
+                 (loop (cdr args)))
+                ((string=? arg "-link-repos-home")
+                 (set! *link-repos-home?* #t)
+                 (loop (cdr args)))
+                (else
+                 (cond ((and git-dir output-dir)
+                        (die! "Invalid option: ~a" arg))
+                       ((and (not git-dir) (not output-dir))
+                        (set! git-dir arg))
+                       ((not output-dir)
+                        (set! output-dir arg)))
+                 (loop (cdr args)))))))
 
-  (unless (and output-dir git-dir)
-    (usage 2))
+    (unless (and output-dir git-dir)
+      (usage 2))
 
-  (set! *repo-name*
-        (pathname-file (string-chomp (normalize-pathname git-dir) "/")))
+    (set! *repo-name*
+          (pathname-file (string-chomp (normalize-pathname git-dir) "/")))
 
-  ;; Read repo configuration file
-  (handle-exceptions exn
-    (unless (eq? (get-condition-property exn 'exn 'errno) errno/noent)
-      (signal exn))
-    (set! *conf*
-          (with-input-from-file (make-pathname git-dir ".git2html.scm")
-            read-list)))
+    (obtain-lock (make-pathname output-dir ".git"))
 
-  (let ((branches (if (null? branches)
-                      '("master")
-                      branches)))
-    (create-project-index git-dir branches output-dir)
-    (for-each (lambda (branch)
-                (create-branch-index git-dir branch output-dir)
-                (git-repo-files->html git-dir output-dir branch)
-                (git-repo-commits->html git-dir output-dir
-                                        branch: branch
-                                        force-regenerate: force-regenerate))
-              branches))
-  )
+    ;; Read repo configuration file
+    (handle-exceptions exn
+      (unless (eq? (get-condition-property exn 'exn 'errno) errno/noent)
+        (signal exn))
+      (set! *conf*
+            (with-input-from-file (make-pathname git-dir ".git2html.scm")
+              read-list)))
+
+    (let ((branches (if (null? branches)
+                        '("master")
+                        branches)))
+      (create-project-index git-dir branches output-dir)
+      (for-each (lambda (branch)
+                  (create-branch-index git-dir branch output-dir)
+                  (git-repo-files->html git-dir output-dir branch)
+                  (git-repo-commits->html git-dir output-dir
+                                          branch: branch
+                                          force-regenerate: force-regenerate))
+                branches))))
+
+(set-signal-handler! signal/int
+  (lambda (signal)
+    (release-lock)
+    (exit)))
+
+(handle-exceptions exn
+  (begin
+    (print-error-message exn)
+    (print-call-chain)
+    (release-lock))
+  (main (command-line-arguments)))
+(release-lock)
 
 ) ;; end module
