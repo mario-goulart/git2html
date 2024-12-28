@@ -32,6 +32,9 @@
 ;; Will be set to #t if -link-repos-home is given on the command line
 (define *link-repos-home?* #f)
 
+;; Will be set to the directory name of the repo given on the command line
+(define *repo-name* "foo")
+
 (define (usage #!optional exit-code)
   (let* ((port (if (and exit-code (not (zero? exit-code)))
                    (current-error-port)
@@ -72,7 +75,7 @@ EOF
         (lambda ()
           (SRV:send-reply (pre-post-order* sxml rules)))))))
 
-(define (html-page content #!key (title ""))
+(define (html-page content title)
   (sxml->html
    `((literal "<!DOCTYPE html>")
      (html
@@ -95,7 +98,10 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
   (with-output-to-file file
     (lambda ()
       (display
-       (html-page sxml title: title)))))
+       (html-page sxml title)))))
+
+(define (page-title title)
+  (sprintf "~a - ~a" title *repo-name*))
 
 (define (sort-files abs-dir)
   ;; Directories first
@@ -122,23 +128,22 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
         (make-pathname ".." (loop (sub1 depth))))))
 
 (define (create-preamble git-dir depth #!key branch path)
-  (let ((repo-name (pathname-strip-directory (string-chomp git-dir "/"))))
-    `((p
-       ,(if *link-repos-home?*
-            `((a (@ (href ,(depth->relative-path depth ".."))) "~")
-              " ")
-            '())
-       (a (@ (href ,(depth->relative-path depth ""))) ,repo-name)
-       ,(if branch
-            `((literal "&nbsp;")
-              "("
-              (a (@ (href ,(depth->relative-path depth branch))) ,branch)
-              ")")
-            '())
-       ,(if path
-            `((literal "&nbsp;") ,path)
-            '()))
-      (hr))))
+  `((p
+     ,(if *link-repos-home?*
+          `((a (@ (href ,(depth->relative-path depth ".."))) "~")
+            " ")
+          '())
+     (a (@ (href ,(depth->relative-path depth ""))) ,*repo-name*)
+     ,(if branch
+          `((literal "&nbsp;")
+            "("
+            (a (@ (href ,(depth->relative-path depth branch))) ,branch)
+            ")")
+          '())
+     ,(if path
+          `((literal "&nbsp;") ,path)
+          '()))
+    (hr)))
 
 (define (read-git-file top-git-dir file branch)
   (with-input-from-pipe (sprintf "git -C ~a show ~a:~a"
@@ -199,7 +204,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                branch: branch
                                path: (make-absolute-pathname #f file))
              ,(enumerate-lines (read-git-file top-git-dir file branch)))
-           title: file)))
+           title: (page-title file))))
      listing)
 
     ;; Create index.html files for directory listings
@@ -225,7 +230,8 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                    ,(if dir?
                                         (string-append file "/")
                                         (pathname-file file))))))
-                       dir-content))))))
+                       dir-content)))
+             title: (page-title (make-absolute-pathname #f rel-dir)))))
        dirs))))
 
 (define (create-project-index git-dir branches output-dir)
@@ -240,7 +246,8 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                          "files"))
                   (td (a (@ (href ,(make-pathname branch "commits")))
                          "commits"))))
-              branches)))))
+              branches)))
+    title: *repo-name*))
 
 (define (create-branch-index git-dir branch output-dir)
   (let ((branch-dir (make-pathname output-dir branch)))
@@ -249,7 +256,8 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
       `(,(create-preamble git-dir 1 branch: branch)
         (ul
          (li (a (@ (href "files")) "files"))
-         (li (a (@ (href "commits")) "commits")))))))
+         (li (a (@ (href "commits")) "commits"))))
+      title: (page-title branch))))
 
 (define (git-repo-commits->html git-dir output-dir #!key branch force-regenerate)
   (let ((log '())
@@ -294,12 +302,14 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                  `(,(create-preamble git-dir 2 ;; +2 is for <branch>/files
                                      path: hash
                                      branch: branch)
-                   (pre ,commit)))))))
+                   (pre ,commit))
+                 title: (page-title hash))))))
        log)
       (write-html-page (make-pathname out-dir "index.html")
         `(,(create-preamble git-dir 2 ;; +2 is for <branch>/files
                             branch: branch)
-          (table ,(butlast html-log)))))))
+          (table ,(butlast html-log)))
+        title: (page-title "commits")))))
 
 (let ((git-dir #f)
       (output-dir #f)
@@ -332,6 +342,9 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 
   (unless (and output-dir git-dir)
     (usage 2))
+
+  (set! *repo-name*
+        (pathname-file (string-chomp (normalize-pathname git-dir) "/")))
 
   (let ((branches (if (null? branches)
                       '("master")
