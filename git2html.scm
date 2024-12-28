@@ -130,7 +130,7 @@ td, th { padding: 2px; padding-right: 10px}
                                  (qs file))
     read-string))
 
-(define (list-git-bare-repo top-git-dir branch)
+(define (list-git-repo top-git-dir branch)
   (with-input-from-pipe
       (sprintf "git -C ~a ls-tree --name-only --full-tree -r ~a"
                (qs top-git-dir)
@@ -139,7 +139,7 @@ td, th { padding: 2px; padding-right: 10px}
 
 (define (git-repo-files->html top-git-dir output-dir branch)
   (let ((out-dir (make-pathname (list output-dir branch) "files"))
-        (listing (list-git-bare-repo top-git-dir branch)))
+        (listing (list-git-repo top-git-dir branch)))
     ;; Even in incremental mode we have to remove the directory
     ;; containing files, as commits might have removed them, in which
     ;; case they would still be displayed.
