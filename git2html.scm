@@ -23,7 +23,8 @@
         (chicken process signal)
         (chicken process-context)
         (chicken sort)
-        (chicken string))
+        (chicken string)
+        (chicken time))
 (import srfi-1 srfi-13 sxml-transforms)
 
 ;; Will be set to #t if -link-repos-home is given on the command line
@@ -86,8 +87,22 @@ EOF
 (define (obtain-lock lock-dir)
   (let ((lock-file (make-pathname lock-dir ".lock"))
         (max-tries 30)
-        (seconds-between-retries 10))
+        (seconds-between-retries 10)
+        ;; Lock files older than stale-log-age seconds are considered
+        ;; stale and get removed.
+        (stale-log-age 18000))
     (create-directory lock-dir 'with-parents)
+    ;; Remove stale lock
+    (handle-exceptions exn
+      (unless (eq? (get-condition-property exn 'exn 'errno) errno/noent)
+        (signal exn))
+      (let ((lock-mtime (vector-ref (file-stat lock-file) 8))
+            (now (current-seconds)))
+        (when (< (+ lock-mtime stale-log-age) now)
+          (fprintf (current-error-port) "Deleting stale lock file ~a\n"
+                   lock-file)
+          (delete-file lock-file))))
+    ;; Try to obtain the lock
     (let loop ((tries 0))
       (handle-exceptions exn
         (begin
@@ -441,7 +456,8 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 
 (set-signal-handler! signal/int
   (lambda (signal)
-    (release-lock)
+    (when *lock*
+      (release-lock))
     (exit)))
 
 (handle-exceptions exn
