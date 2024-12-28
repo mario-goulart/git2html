@@ -1,7 +1,6 @@
 (module git2html ()
 
 ;; TODO
-;; * Replace with-input-from-pipe with some other process method with better error checking and without going through a shell
 ;; * Breadcrumbs for paths
 ;; * Configuration option to specify binary files which should not have a .html suffix
 ;; * Hard-link commits in different branches
@@ -12,6 +11,7 @@
 
 (import scheme)
 (import (chicken base)
+        (chicken bitwise)
         (chicken condition)
         (chicken errno)
         (chicken file)
@@ -67,6 +67,15 @@ EOF
                        (cons (string-append fmt "\n")
                              args)))
   (exit 1))
+
+(define (run-git args reader)
+  (let* ((cmd (sprintf "git ~a" args))
+         (p (open-input-pipe cmd))
+         (out (with-input-from-port p reader))
+         (exit-code (arithmetic-shift (close-input-pipe p) -8)))
+    (unless (zero? exit-code)
+      (die! "'~a' exited ~a" cmd exit-code))
+    out))
 
 (define sxml->html
   (let ((rules `((literal *preorder* . ,(lambda (t b) b))
@@ -150,11 +159,11 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
     (hr)))
 
 (define (read-git-file top-git-dir file branch)
-  (with-input-from-pipe (sprintf "git -C ~a show ~a:~a"
-                                 (qs top-git-dir)
-                                 (qs branch)
-                                 (qs file))
-    read-lines))
+  (run-git (sprintf "-C ~a show ~a:~a"
+                    (qs top-git-dir)
+                    (qs branch)
+                    (qs file))
+           read-lines))
 
 (define (num-digits n)
   (if (zero? n)
@@ -180,11 +189,10 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                  (iota (length lines) 1)))))
 
 (define (list-git-repo top-git-dir branch)
-  (with-input-from-pipe
-      (sprintf "git -C ~a ls-tree --name-only --full-tree -r ~a"
-               (qs top-git-dir)
-               (qs branch))
-    read-lines))
+  (run-git (sprintf "-C ~a ls-tree --name-only --full-tree -r ~a"
+                    (qs top-git-dir)
+                    (qs branch))
+           read-lines))
 
 (define (git-repo-files->html top-git-dir output-dir branch)
   (let ((out-dir (make-pathname (list output-dir branch) "files"))
@@ -285,15 +293,14 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                         (list output-dir branch)
                         output-dir)
                     "commits")))
-    (with-input-from-pipe
-        (sprintf "git -C ~a log --pretty='format:%H%x09%an%x09%s'" (qs git-dir))
-      (lambda ()
-        (let loop ()
-          (let ((line (read-line)))
-            (unless (eof-object? line)
-              (set! log (cons line log))
-              (loop))))))
-
+    (run-git (sprintf "-C ~a log --pretty='format:%H%x09%an%x09%s'"
+                      (qs git-dir))
+             (lambda ()
+               (let loop ()
+                 (let ((line (read-line)))
+                   (unless (eof-object? line)
+                     (set! log (cons line log))
+                     (loop))))))
     (create-directory out-dir 'parents)
     (let ((html-log '()))
       (for-each
@@ -312,11 +319,10 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                 html-log))
            (when (or force-regenerate (not (file-exists? commit-file)))
              (let ((commit
-                    (with-input-from-pipe
-                        (sprintf "git -C ~a show --format=fuller ~a"
-                                 (qs git-dir)
-                                 (qs hash))
-                      read-string)))
+                    (run-git (sprintf "-C ~a show --format=fuller ~a"
+                                      (qs git-dir)
+                                      (qs hash))
+                             read-string)))
                (write-html-page commit-file
                  `(,(create-preamble git-dir 2 ;; +2 is for <branch>/files
                                      path: hash
