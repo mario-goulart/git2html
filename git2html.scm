@@ -2,6 +2,7 @@
 
 ;; TODO
 ;; * Breadcrumbs for paths
+;; * Link to projects' home
 ;; * Hard-link commits in different branches
 ;; * Check overwrite of files
 ;; * Handle symlinks
@@ -28,6 +29,9 @@
         (chicken string))
 (import sxml-transforms srfi-1 srfi-13)
 
+;; Will be set to #t if -link-repos-home is given on the command line
+(define *link-repos-home?* #f)
+
 (define (usage #!optional exit-code)
   (let* ((port (if (and exit-code (not (zero? exit-code)))
                    (current-error-port)
@@ -43,6 +47,10 @@ Usage: #prog [<options>] <git-repo-dir> <output-dir>
 
 -f|-force-regenerate
     Force the regeneration of HTML files for commits.
+
+-link-repos-home
+    Add link to the parent directory of the repo directory (useful for
+    combining multiple repositories).
 
 EOF
 ))
@@ -112,16 +120,21 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 
 (define (create-preamble git-dir depth #!key branch path)
   (let ((repo-name (pathname-strip-directory (string-chomp git-dir "/"))))
-    `((p (a (@ (href ,(depth->relative-path depth ""))) ,repo-name)
-         ,(if branch
-              `((literal "&nbsp;")
-                "("
-                (a (@ (href ,(depth->relative-path depth branch))) ,branch)
-                ")")
-              '())
-         ,(if path
-              `((literal "&nbsp;") ,path)
-              '()))
+    `((p
+       ,(if *link-repos-home?*
+            `((a (@ (href ,(depth->relative-path depth ".."))) "~")
+              " ")
+            '())
+       (a (@ (href ,(depth->relative-path depth ""))) ,repo-name)
+       ,(if branch
+            `((literal "&nbsp;")
+              "("
+              (a (@ (href ,(depth->relative-path depth branch))) ,branch)
+              ")")
+            '())
+       ,(if path
+            `((literal "&nbsp;") ,path)
+            '()))
       (hr))))
 
 (define (read-git-file top-git-dir file branch)
@@ -301,6 +314,9 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                (loop (cddr args)))
               ((member arg '("-f" "-force-regenerate"))
                (set! force-regenerate #t)
+               (loop (cdr args)))
+              ((string=? arg "-link-repos-home")
+               (set! *link-repos-home?* #t)
                (loop (cdr args)))
               (else
                (cond ((and git-dir output-dir)
