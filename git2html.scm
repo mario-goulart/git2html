@@ -1,16 +1,14 @@
 (module git2html ()
 
 ;; TODO
+;; * Replace with-input-from-pipe with some other process method with better error checking and without going through a shell
 ;; * Breadcrumbs for paths
-;; * Link to projects' home
+;; * Configuration option to specify binary files which should not have a .html suffix
 ;; * Hard-link commits in different branches
 ;; * Check overwrite of files
 ;; * Handle symlinks
-;; * parse configuration file
-;; * Support svn
+;; * Support svn?
 ;; * Locking
-;; * Replace with-input-from-pipe with some other process method with better error checking and without going through a shell
-;; Configuration option to specify binary files which should not have a .html suffix
 
 (import scheme)
 (import (chicken base)
@@ -34,6 +32,9 @@
 
 ;; Will be set to the directory name of the repo given on the command line
 (define *repo-name* "foo")
+
+;; Will be set to the contents of the repo configuration file, if it exists
+(define *conf* '())
 
 (define (usage #!optional exit-code)
   (let* ((port (if (and exit-code (not (zero? exit-code)))
@@ -93,6 +94,9 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
        (title ,title))
       (body
        ,content)))))
+
+(define (conf-ref key)
+  (alist-ref key *conf*))
 
 (define (write-html-page file sxml #!key (title ""))
   (with-output-to-file file
@@ -238,6 +242,19 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
   (create-directory output-dir 'parents)
   (write-html-page (make-pathname output-dir "index.html")
     `(,(create-preamble git-dir 0)
+      ;; Description
+      ,(let ((description (conf-ref 'description)))
+         (if description
+             `((h2 "Description")
+               (p ,description))
+             '()))
+      ;; Checkout instructions
+      ,(let ((checkout-instructions (conf-ref 'checkout-instructions)))
+         (if checkout-instructions
+             `((h2 "Checkout instructions")
+               (p ,checkout-instructions))
+             '()))
+      (h2 "Branches")
       (table
        ,@(map (lambda (branch)
                 `(tr
@@ -345,6 +362,14 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 
   (set! *repo-name*
         (pathname-file (string-chomp (normalize-pathname git-dir) "/")))
+
+  ;; Read repo configuration file
+  (handle-exceptions exn
+    (unless (eq? (get-condition-property exn 'exn 'errno) errno/noent)
+      (signal exn))
+    (set! *conf*
+          (with-input-from-file (make-pathname git-dir ".git2html.scm")
+            read-list)))
 
   (let ((branches (if (null? branches)
                       '("master")
