@@ -24,7 +24,7 @@
         (chicken sort)
         (chicken string)
         (chicken time))
-(import srfi-1 srfi-13 sxml-transforms)
+(import dot-locking srfi-1 srfi-13 sxml-transforms)
 
 ;; Will be set to #t if -link-repos-home is given on the command line
 (define *link-repos-home?* #f)
@@ -34,6 +34,8 @@
 
 ;; Will be set to the contents of the repo configuration file, if it exists
 (define *conf* '())
+
+(define *lock-file* #f)
 
 (define (usage #!optional exit-code)
   (let* ((port (if (and exit-code (not (zero? exit-code)))
@@ -384,6 +386,11 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
     (unless (and output-dir git-dir)
       (usage 2))
 
+    (let ((lock-dir (make-pathname output-dir ".git")))
+      (create-directory lock-dir 'parents)
+      (set! *lock-file* (make-pathname lock-dir ".git2html"))
+      (obtain-dot-lock *lock-file* 10 15 3600))
+
     (set! *repo-name*
           (pathname-file (string-chomp (normalize-pathname git-dir) "/")))
 
@@ -407,7 +414,22 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                           force-regenerate: force-regenerate))
                 branches))))
 
+(on-exit
+ (lambda ()
+   (when *lock-file*
+     (release-dot-lock *lock-file*))))
 
-(main (command-line-arguments))
+(debug-dot-lock #t)
+
+(set-signal-handler! signal/int
+  (lambda (signal)
+    (exit 3)))
+
+(handle-exceptions exn
+  (begin
+    (print-call-chain)
+    (print-error-message exn)
+    (exit 1))
+  (main (command-line-arguments)))
 
 ) ;; end module
