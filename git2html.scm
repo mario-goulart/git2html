@@ -167,11 +167,14 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
            read-lines))
 
 (define (num-digits n)
+  ;; Return the number of digits in `n' (a positive integer).
   (if (zero? n)
       1
       (inexact->exact (floor (add1 (log n 10))))))
 
 (define (pad-lineno lineno max-digits)
+  ;; Left-pad lineno with (literal "&nbsp;") to have proper alignement
+  ;; of digits.
   (let ((lineno-num-digits (num-digits lineno)))
     (let loop ((max-digits max-digits))
       (if (= lineno-num-digits max-digits)
@@ -200,7 +203,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
         (listing (list-git-repo top-git-dir branch)))
     ;; Even in incremental mode we have to remove the directory
     ;; containing files, as commits might have removed them, in which
-    ;; case they would still be displayed.
+    ;; case they would still be displayed if not removed.
     (handle-exceptions exn
       (unless (eq? (get-condition-property exn 'exn 'errno) errno/noent)
         (signal exn))
