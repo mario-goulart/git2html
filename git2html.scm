@@ -422,8 +422,6 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
    (when *lock-file*
      (release-dot-lock *lock-file*))))
 
-(debug-dot-lock #t)
-
 (set-signal-handler! signal/int
   (lambda (signal)
     (exit 3)))
