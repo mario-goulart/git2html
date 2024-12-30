@@ -406,7 +406,8 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
               read-list)))
 
     (let ((branches (if (null? branches)
-                        '("master")
+                        (or (conf-ref 'branches)
+                            '("master"))
                         branches)))
       (create-project-index git-dir branches output-dir)
       (for-each (lambda (branch)
