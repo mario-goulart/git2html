@@ -30,7 +30,7 @@
 (define *link-repos-home?* #f)
 
 ;; Will be set to the directory name of the repo given on the command line
-(define *repo-name* "foo")
+(define *repo-name* #f)
 
 ;; Will be set to the contents of the repo configuration file, if it exists
 (define *conf* '())
