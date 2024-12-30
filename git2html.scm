@@ -425,7 +425,9 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 
 (set-signal-handler! signal/int
   (lambda (signal)
-    (exit 3)))
+    ;; This is just to force a call to exit on C-c, so that the lock
+    ;; file gets released.
+    (exit 2)))
 
 (handle-exceptions exn
   (begin
