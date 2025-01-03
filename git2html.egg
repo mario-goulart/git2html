@@ -1,0 +1,17 @@
+;;; git2html.egg -*- scheme -*-
+
+((synopsis
+  "A tool to generate HTML pages out of the content of git repositories.")
+ (author "Mario Domenech Goulart")
+ (license "BSD")
+ (category web)
+ (dependencies
+  ;; CHICKEN 5.4.0 is required for the fix of http://bugs.call-cc.org/ticket/1830
+  (chicken "5.4.0")
+  dot-locking
+  srfi-1
+  srfi-13
+  sxml-transforms)
+ (component-options
+  (csc-options "-O3" "-d1"))
+ (components (program git2html)))
