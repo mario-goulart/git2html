@@ -10,6 +10,7 @@
         (chicken fixnum)
         (chicken format)
         (chicken io)
+        (chicken irregex)
         (chicken pathname)
         (chicken port)
         (chicken process)
@@ -114,8 +115,8 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
       (body
        ,content)))))
 
-(define (conf-ref key)
-  (alist-ref key *conf*))
+(define (conf-ref key #!key default)
+  (alist-ref key *conf* eq? default))
 
 (define (write-html-page file sxml #!key (title ""))
   (with-output-to-file file
@@ -207,6 +208,16 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                     (qs branch))
            read-lines))
 
+(define (htmlize-file? path)
+  ;; path is relative to the root of the git repository directory
+  (let loop ((patterns (conf-ref 'no-htmlize-patterns default: '())))
+    (if (null? patterns)
+        #t
+        (let ((pattern (car patterns)))
+          (if (irregex-search pattern path)
+              #f
+              (loop (cdr patterns)))))))
+
 (define (git-repo-files->html top-git-dir output-dir branch)
   (let ((out-dir (make-pathname (list output-dir branch) "files"))
         (listing (list-git-repo top-git-dir branch)))
@@ -222,16 +233,21 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
     ;; Create files
     (for-each
      (lambda (file)
-       (let* ((rel-dir (pathname-directory file))
-              (depth (string-count file #\/)))
-         (create-directory (make-pathname out-dir rel-dir) 'parents)
-         (write-html-page (make-pathname out-dir file "html")
-           `(,(create-preamble top-git-dir
-                               (+ 2 depth) ;; +2 is for <branch>/files
-                               branch: branch
-                               path: (make-absolute-pathname #f file))
-             ,(enumerate-lines (read-git-file top-git-dir file branch)))
-           title: (page-title file))))
+       (if (htmlize-file? file)
+           (let* ((rel-dir (pathname-directory file))
+                  (depth (string-count file #\/)))
+             (create-directory (make-pathname out-dir rel-dir) 'parents)
+             (write-html-page (make-pathname out-dir file "html")
+               `(,(create-preamble top-git-dir
+                                   (+ 2 depth) ;; +2 is for <branch>/files
+                                   branch: branch
+                                   path: (make-absolute-pathname #f file))
+                 ,(enumerate-lines (read-git-file top-git-dir file branch)))
+               title: (page-title file)))
+           (let ((lines (read-git-file top-git-dir file branch)))
+             (with-output-to-file (make-pathname out-dir file)
+               (lambda ()
+                 (for-each print lines))))))
      listing)
 
     ;; Create index.html files for directory listings
@@ -255,11 +271,14 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                 (lambda (file)
                                   (if (string-suffix? ".html" file)
                                       (pathname-file file)
-                                      (pathname-strip-directory file)))))
+                                      file))))
                            `(li (a (@ (href ,(make-pathname
                                               #f
                                               (get-filename file)
-                                              (if dir? #f "html"))))
+                                              (if (or dir?
+                                                      (not (string-suffix? ".html" file)))
+                                                  #f
+                                                  "html"))))
                                    ,(if dir?
                                         (string-append file "/")
                                         (get-filename file))))))
