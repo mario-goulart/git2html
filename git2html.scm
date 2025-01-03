@@ -1,11 +1,5 @@
 (module git2html ()
 
-;; TODO
-;; * Breadcrumbs for paths
-;; * Configuration option to specify binary files which should not have a .html suffix
-;; * Handle symlinks
-;; * Support svn?
-
 (import scheme)
 (import (chicken base)
         (chicken bitwise)
@@ -35,6 +29,8 @@
 ;; Will be set to the contents of the repo configuration file, if it exists
 (define *conf* '())
 
+;; Will be set to the path to the lock file once the output directory
+;; is determined
 (define *lock-file* #f)
 
 (define (usage #!optional exit-code)
@@ -62,6 +58,19 @@ EOF
 ;;| This is to prevent Emacs' syntax highlighter from screwing up
     (fprintf port msg)
     (when exit-code (exit exit-code))))
+
+(define (with-environment-variable var val thunk)
+  ;; This is not thread-safe!
+  (let ((old-val (get-environment-variable var)))
+    (dynamic-wind
+        void
+        (lambda ()
+          (set-environment-variable! var val)
+          (thunk))
+        (lambda ()
+          (if old-val
+              (set-environment-variable! var old-val)
+              (unset-environment-variable! var))))))
 
 (define (die! fmt . args)
   (apply fprintf (cons (current-error-port)
@@ -392,7 +401,14 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
     (let ((lock-dir (make-pathname output-dir ".git")))
       (create-directory lock-dir 'parents)
       (set! *lock-file* (make-pathname lock-dir ".git2html"))
-      (obtain-dot-lock *lock-file* 10 15 3600))
+      ;; dot-locking creates a temporary file to hard-link to the
+      ;; actual lock file.  To reduce the chances that the temporary
+      ;; file and the lock file end up in different filesystems (in
+      ;; which case hard-linking would not be possible), we set TMPDIR
+      ;; (used by create-directory) to the lock directory.
+      (with-environment-variable "TMPDIR" lock-dir
+         (lambda ()
+           (obtain-dot-lock *lock-file* 10 15 3600))))
 
     (set! *repo-name*
           (pathname-file (string-chomp (normalize-pathname git-dir) "/")))
