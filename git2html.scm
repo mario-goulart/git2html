@@ -38,6 +38,25 @@
 ;; URL used as argument.
 (define *trap-url* #f)
 
+;; Filenames that match the patterns below won't be converted to HTML.
+;; Can be overriden by the `no-htmlize-patterns' option in the
+;; repo-specific configuration.
+(define +no-htmlize-patterns+
+  (map (lambda (extension)
+         (irregex `(: any "." ,extension eol) 'case-insensitive))
+       '("bmp"
+         "exe"
+         "dll"
+         "ico"
+         "gif"
+         "jpg" "jpeg"
+         "mp3" "mp4"
+         "o" "ogg"
+         "pbm" "pdf" "png"
+         "so"
+         "wav" "webm"
+         "xpm")))
+
 (define (usage #!optional exit-code)
   (let* ((port (if (and exit-code (not (zero? exit-code)))
                    (current-error-port)
@@ -87,6 +106,13 @@ EOF
                        (cons (string-append fmt "\n")
                              args)))
   (exit 1))
+
+(define (copy-file-from-git top-git-dir branch git-file output-file)
+  (system* (sprintf "git -C ~a show ~a:~a > ~a"
+                    (qs top-git-dir)
+                    (qs branch)
+                    (qs git-file)
+                    (qs output-file))))
 
 (define (run-git args reader)
   (let* ((cmd (sprintf "git ~a" args))
@@ -225,7 +251,8 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 
 (define (htmlize-file? path)
   ;; path is relative to the root of the git repository directory
-  (let loop ((patterns (conf-ref 'no-htmlize-patterns default: '())))
+  (let loop ((patterns (conf-ref 'no-htmlize-patterns
+                                 default: +no-htmlize-patterns+)))
     (if (null? patterns)
         #t
         (let ((pattern (car patterns)))
@@ -259,10 +286,8 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                    path: (make-absolute-pathname #f file))
                  ,(enumerate-lines (read-git-file top-git-dir file branch)))
                title: (page-title file)))
-           (let ((lines (read-git-file top-git-dir file branch)))
-             (with-output-to-file (make-pathname out-dir file)
-               (lambda ()
-                 (for-each print lines))))))
+           (copy-file-from-git
+            top-git-dir branch file (make-pathname out-dir file))))
      listing)
 
     ;; Create index.html files for directory listings
