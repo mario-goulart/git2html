@@ -34,6 +34,10 @@
 ;; is determined
 (define *lock-file* #f)
 
+;; If -trap-url is provided on the command line, will be set to the
+;; URL used as argument.
+(define *trap-url* #f)
+
 (define (usage #!optional exit-code)
   (let* ((port (if (and exit-code (not (zero? exit-code)))
                    (current-error-port)
@@ -53,6 +57,11 @@ Usage: #prog [<options>] <git-repo-dir> <output-dir>
 -link-repos-home
     Add link to the parent directory of the repo directory (useful for
     combining multiple repositories).
+
+-trap-url <URL>
+    URL (or path) to be used as trap for evil crawlers.  Normally it should
+    point to a location forbidden by robots.txt, so that requests can be
+    distinguished from human users'.
 
 EOF
 ))
@@ -110,10 +119,16 @@ table td { white-space: nowrap; }
 td, th { padding: 2px; padding-right: 10px; }
 pre.code { overflow: auto; }
 pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
+#trap { display: none; }
 ")
        (title ,title))
       (body
-       ,content)))))
+       ,(list content
+              (if *trap-url*
+                  `(a (@ (href ,*trap-url*)
+                         (id "trap"))
+                      "Trap")
+                  '())))))))
 
 (define (conf-ref key #!key default)
   (alist-ref key *conf* eq? default))
@@ -405,6 +420,11 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                 ((string=? arg "-link-repos-home")
                  (set! *link-repos-home?* #t)
                  (loop (cdr args)))
+                ((string=? arg "-trap-url")
+                 (when (null? (cdr args))
+                   (die! "-trap-url: missing argument"))
+                 (set! *trap-url* (cadr args))
+                 (loop (cddr args)))
                 (else
                  (cond ((and git-dir output-dir)
                         (die! "Invalid option: ~a" arg))
