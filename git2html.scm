@@ -334,13 +334,13 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
       ,(let ((description (conf-ref 'description)))
          (if description
              `((h2 "Description")
-               (p ,description))
+               ,description)
              '()))
       ;; Checkout instructions
       ,(let ((checkout-instructions (conf-ref 'checkout-instructions)))
          (if checkout-instructions
              `((h2 "Checkout instructions")
-               (p ,checkout-instructions))
+               ,checkout-instructions)
              '()))
       (h2 "Branches")
       (table
