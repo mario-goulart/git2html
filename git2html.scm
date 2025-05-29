@@ -425,7 +425,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
       (write-html-page (make-pathname branch-commits-dir "index.html")
         `(,(create-preamble git-dir 2 ;; +2 is for <branch>/files
                             branch: branch)
-          (table ,(butlast html-log)))
+          (table ,html-log))
         title: (page-title "commits")))))
 
 (define (main args)
