@@ -199,7 +199,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 (define (create-preamble git-dir depth #!key branch path)
   `((p
      ,(if *link-repos-home?*
-          `((a (@ (href ,(depth->relative-path *link-repos-home?* ""))) "~")
+          `((a (@ (href ,(depth->relative-path (+ depth *link-repos-home?*) ""))) "~")
             " ")
           '())
      (a (@ (href ,(depth->relative-path depth ""))) ,*repo-name*)
