@@ -21,7 +21,8 @@
         (chicken time))
 (import dot-locking srfi-1 srfi-13 sxml-transforms)
 
-;; Will be set to #t if -link-repos-home is given on the command line
+;; Will be set to the number of parent directories if -link-repos-home
+;; is given on the command line
 (define *link-repos-home?* #f)
 
 ;; Will be set to the directory name of the repo given on the command line
@@ -73,9 +74,11 @@ Usage: #prog [<options>] <git-repo-dir> <output-dir>
 -f|-force-regenerate
     Force the regeneration of HTML files for commits.
 
--link-repos-home
+-link-repos-home <depth>
     Add link to the parent directory of the repo directory (useful for
-    combining multiple repositories).
+    combining multiple repositories).  <depth> is the number of parent
+    directories relative to the directory where HTML pages will generated.
+    For example, with <depth> 2, links to home will use `../../'.
 
 -trap-url <URL>
     URL (or path) to be used as trap for evil crawlers.  Normally it should
@@ -195,7 +198,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 (define (create-preamble git-dir depth #!key branch path)
   `((p
      ,(if *link-repos-home?*
-          `((a (@ (href ,(depth->relative-path depth ".."))) "~")
+          `((a (@ (href ,(depth->relative-path *link-repos-home?* ""))) "~")
             " ")
           '())
      (a (@ (href ,(depth->relative-path depth ""))) ,*repo-name*)
@@ -443,8 +446,14 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                  (set! force-regenerate #t)
                  (loop (cdr args)))
                 ((string=? arg "-link-repos-home")
-                 (set! *link-repos-home?* #t)
-                 (loop (cdr args)))
+                 (when (null? (cdr args))
+                   (die! "-link-repos-home: missing argument"))
+                 (let ((depth (string->number (cadr args))))
+                   (unless (and depth (fixnum? depth) (positive? depth))
+                     (die! "-link-repos-home: invalid argument: ~a (must be a positive integer)"
+                           depth))
+                   (set! *link-repos-home?* depth))
+                 (loop (cddr args)))
                 ((string=? arg "-trap-url")
                  (when (null? (cdr args))
                    (die! "-trap-url: missing argument"))
