@@ -379,7 +379,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                  output-dir)
                              "commits")))
     (create-directory commits-dir 'parents)
-    (run-git (sprintf "-C ~a log --pretty='format:%H%x09%an%x09%s'"
+    (run-git (sprintf "-C ~a log --pretty='format:%H%x09%as%x09%an%x09%s'"
                       (qs git-dir))
              (lambda ()
                (let loop ()
@@ -393,14 +393,16 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
        (lambda (line)
          (let* ((tokens (string-split line "\t"))
                 (hash (car tokens))
-                (author (cadr tokens))
-                (subject (caddr tokens))
+                (date (cadr tokens))
+                (author (caddr tokens))
+                (subject (cadddr tokens))
                 (commit-file (make-pathname commits-dir hash "html"))
                 (branch-commit-file (make-pathname branch-commits-dir hash "html"))
                 (web-commit-file (make-pathname #f hash "html")))
            (set! html-log (cons `(tr
                                   (td (a (@ (href ,web-commit-file))
-                                         ,hash))
+                                         ,(string-take hash 8)))
+                                  (td ,date)
                                   (td ,author)
                                   (td ,subject))
                                 html-log))
