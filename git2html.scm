@@ -111,6 +111,7 @@ EOF
   (exit 1))
 
 (define (copy-file-from-git top-git-dir branch git-file output-file)
+  (create-directory (pathname-directory output-file) 'parents)
   (system* (sprintf "git -C ~a show ~a:~a > ~a"
                     (qs top-git-dir)
                     (qs branch)
