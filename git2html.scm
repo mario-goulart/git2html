@@ -379,7 +379,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                  output-dir)
                              "commits")))
     (create-directory commits-dir 'parents)
-    (run-git (sprintf "-C ~a log --pretty='format:%H%x09%as%x09%an%x09%s'"
+    (run-git (sprintf "-C ~a log --pretty='format:%H%x09%ai%x09%an%x09%s'"
                       (qs git-dir))
              (lambda ()
                (let loop ()
