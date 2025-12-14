@@ -370,13 +370,10 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 
 (define (git-repo-commits->html git-dir output-dir branch #!key force-regenerate)
   (let ((log '())
-        ;; Directory for all commits -- branch-specific commits will
-        ;; link to files here.
-        (commits-dir (make-pathname (list output-dir ".git") "commits"))
         (branch-commits-dir (make-pathname (list output-dir branch) "commits")))
-    (create-directory commits-dir 'parents)
-    (run-git (sprintf "-C ~a log --pretty='format:%H%x09%ai%x09%an%x09%s'"
-                      (qs git-dir))
+    (run-git (sprintf "-C ~a log refs/heads/~a --pretty='format:%H%x09%ai%x09%an%x09%s'"
+                      (qs git-dir)
+                      (qs branch))
              (lambda ()
                (let loop ()
                  (let ((line (read-line)))
@@ -392,7 +389,6 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                 (date (cadr tokens))
                 (author (caddr tokens))
                 (subject (cadddr tokens))
-                (commit-file (make-pathname commits-dir hash "html"))
                 (branch-commit-file (make-pathname branch-commits-dir hash "html"))
                 (web-commit-file (make-pathname #f hash "html")))
            (set! html-log (cons `(tr
@@ -402,22 +398,18 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                                   (td ,author)
                                   (td ,subject))
                                 html-log))
-           (when (or force-regenerate (not (file-exists? commit-file)))
+           (when (or force-regenerate (not (file-exists? branch-commit-file)))
              (let ((commit
                     (run-git (sprintf "-C ~a show --format=fuller ~a"
                                       (qs git-dir)
                                       (qs hash))
                              read-string)))
-               (write-html-page commit-file
-                 `(,(create-preamble git-dir 2 ;; +2 is for <branch>/files
+               (write-html-page branch-commit-file
+                 `(,(create-preamble git-dir 2 ;; +2 is for <branch>/commits
                                      path: hash
                                      branch: branch)
                    (pre ,commit))
-                 title: (page-title hash))))
-           (handle-exceptions exn
-             (unless (eq? (get-condition-property exn 'exn 'errno) errno/exist)
-               (signal exn))
-             (file-link commit-file branch-commit-file))))
+                 title: (page-title hash))))))
        log)
       ;; Table of branch commits
       (write-html-page (make-pathname branch-commits-dir "index.html")
