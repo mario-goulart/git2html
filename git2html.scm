@@ -368,16 +368,12 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
          (li (a (@ (href "commits")) "commits"))))
       title: (page-title branch))))
 
-(define (git-repo-commits->html git-dir output-dir #!key branch force-regenerate)
+(define (git-repo-commits->html git-dir output-dir branch #!key force-regenerate)
   (let ((log '())
         ;; Directory for all commits -- branch-specific commits will
         ;; link to files here.
         (commits-dir (make-pathname (list output-dir ".git") "commits"))
-        (branch-commits-dir (make-pathname
-                             (if branch
-                                 (list output-dir branch)
-                                 output-dir)
-                             "commits")))
+        (branch-commits-dir (make-pathname (list output-dir branch) "commits")))
     (create-directory commits-dir 'parents)
     (run-git (sprintf "-C ~a log --pretty='format:%H%x09%ai%x09%an%x09%s'"
                       (qs git-dir))
@@ -505,8 +501,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
       (for-each (lambda (branch)
                   (create-branch-index git-dir branch output-dir)
                   (git-repo-files->html git-dir output-dir branch)
-                  (git-repo-commits->html git-dir output-dir
-                                          branch: branch
+                  (git-repo-commits->html git-dir output-dir branch
                                           force-regenerate: force-regenerate))
                 branches))))
 
