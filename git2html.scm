@@ -23,7 +23,7 @@
 
 ;; Will be set to the number of parent directories if -link-repos-home
 ;; is given on the command line
-(define *link-repos-home?* #f)
+(define *link-repos-home* #f)
 
 ;; Will be set to the directory name of the repo given on the command line
 (define *repo-name* #f)
@@ -198,8 +198,8 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
 
 (define (create-preamble git-dir depth #!key branch path)
   `((p
-     ,(if *link-repos-home?*
-          `((a (@ (href ,(depth->relative-path (+ depth *link-repos-home?*) ""))) "~")
+     ,(if *link-repos-home*
+          `((a (@ (href ,(depth->relative-path (+ depth *link-repos-home*) ""))) "~")
             " ")
           '())
      (a (@ (href ,(depth->relative-path depth ""))) ,*repo-name*)
@@ -451,7 +451,7 @@ pre.code a { color: #ccc; padding-right: 1ch; text-decoration: none; }
                    (unless (and depth (fixnum? depth) (positive? depth))
                      (die! "-link-repos-home: invalid argument: ~a (must be a positive integer)"
                            depth))
-                   (set! *link-repos-home?* depth))
+                   (set! *link-repos-home* depth))
                  (loop (cddr args)))
                 ((string=? arg "-trap-url")
                  (when (null? (cdr args))
